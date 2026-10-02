@@ -10,6 +10,7 @@ import argparse
 import json
 import re
 import shlex
+import sys
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -220,7 +221,8 @@ class Runtime:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sys.stdout.reconfigure(encoding="utf-8")  # piped output on Windows defaults to cp1252, which has no "≈"
+    parser =argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("task")
     parser.add_argument("--workspace", type=Path, default=Path("workspace"))
     parser.add_argument("--yes", action="store_true", help="unattended: approve everything, answer no questions")
