@@ -129,3 +129,7 @@ agent.py       agents, tools, the loop, the approval gate, the CLI
 sandbox.py     the Docker container and the workspace path confinement
 test_agent.py  loop tests with a scripted model, plus a real-Docker isolation test
 ```
+
+## License
+
+[MIT](LICENSE).
