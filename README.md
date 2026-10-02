@@ -56,22 +56,52 @@ uv run python agent.py "Build a CLI that converts CSV to JSON, with unit tests"
 uv run python agent.py --yes "..."     # unattended: approves everything, answers no questions
 ```
 
-The shape of an interactive session (illustrative, abridged):
-
-```
-[orchestrator] delegate: {"args": {"agent": "coder", "task": "Create csv2json.py ..."}}
-
-[orchestrator] wants to delegate: {"agent": "coder", "task": "Create csv2json.py ..."}
-  approve? [y]es / n <reason> / e <replacement command>: y
-[coder] write_file: {"args": {"path": "csv2json.py", ...}}
-[coder] run_command: {"args": {"command": "python -m unittest -v"}}
-[coder] run_command: {"args": {"command": "rm -rf __pycache__"}}
-
-[coder] wants to run_command: {"command": "rm -rf __pycache__"}
-  approve? [y]es / n <reason> / e <replacement command>: n leave caches alone
-```
-
 Generated files land in `./workspace`. Every tool call, human decision and result is appended to `runs/<timestamp>.jsonl`.
+
+## A real session
+
+The task above, run interactively on 1 October 2026 with `claude-sonnet-5-5`. Taken from the run's trace, abridged:
+
+```
+orchestrator  delegate -> coder       "create csv2json.py and test_csv2json.py ..."        human: y
+coder         write_file x3, then     python -m unittest -v | tail; two smoke commands     human: y
+coder         done                    35 tests pass
+orchestrator  delegate -> reviewer    "independently review ..."                           human: y
+reviewer      read_file x2, then      python -m unittest -v | tail                         human: y
+reviewer      run_command             printf 'a\n1e999\n...' | python csv2json.py --infer-types   human: y
+reviewer      done                    Verdict: not approved
+orchestrator  delegate -> coder       "fix defects ... and add tests"                      human: y
+coder         done                    42 tests pass
+orchestrator  done
+```
+
+| | |
+|---|---|
+| Model calls | 15 of the 60 allowed |
+| Human decisions | 7, all approvals: 3 delegations and 4 shell commands with pipes |
+| Tokens | 66,923 input, 14,668 output |
+| Cost | $0.28 |
+| Wall time | 3 min 9 s, including the time I took to answer |
+
+What the reviewer was for. The coder's first version passed its own 35 tests. The reviewer, which can read and run but not write, reproduced three defects those tests missed, each with the command that shows it:
+
+- `1e999` under `--infer-types` came out as `Infinity`, which is not valid JSON;
+- Arabic-Indic digits (`١٢`) were silently converted to the number 12;
+- a field of more than 4,300 digits crashed the CLI with a traceback instead of exiting 1.
+
+The coder fixed those and three minor issues and added a test for each. I ran the result myself afterwards: 42 tests pass and `1e999` stays a string.
+
+What the run did not do: the orchestrator ended without sending the fixes back to the reviewer, and said so in its final report ("the fixed version has only the coder's own test run behind it"). Nothing in the loop forces a second review.
+
+Rejection, from an earlier run of the same task that I stopped before the review. I answered the first delegation with `n also add an --ident option`. The rejection went back to the orchestrator as a failed tool call, and instead of guessing it called `ask_human`:
+
+```
+My plan already includes `--indent N` (JSON indentation). Did you mean `--ident` as a typo for that,
+or do you want a separate `--ident` option? ... (a) it's a typo, keep just --indent; (b) accept
+`--ident` as an alias of --indent; (c) something else
+```
+
+I answered `a`, and it delegated again with the original plan.
 
 ## What the tests prove
 
@@ -89,7 +119,8 @@ Generated files land in `./workspace`. Every tool call, human decision and resul
 - File tools run on the host, confined by path checks, not inside the container.
 - The reviewer is read-only at the tool level. It could still write through a shell redirect, which is why redirects require approval; under `--yes` that protection is gone.
 - Delegations run one at a time, and a run cannot be paused and resumed later.
-- The loop and the sandbox are tested. Agent quality on real tasks has not been measured.
+- The loop and the sandbox are tested. Agent quality is not measured: one real task, described above, is an example and not an evaluation.
+- A review that ends in "not approved" does not force a second review of the fix; the orchestrator decides.
 
 ## Layout
 
