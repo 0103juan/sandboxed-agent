@@ -1,5 +1,7 @@
 # sandboxed-agent
 
+[![CI](https://github.com/0103juan/sandboxed-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/0103juan/sandboxed-agent/actions/workflows/ci.yml)
+
 A multi-agent coding system in about 300 lines of Python: an orchestrator that delegates to specialist agents, stops for a human at the decisions that matter, and can only act inside a locked-down Docker container.
 
 It is written directly against the Anthropic Messages API, with no agent framework, so that the three things this project is about are visible in the code: the loop, the approval gate, and the isolation boundary.
