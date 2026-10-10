@@ -110,7 +110,8 @@ I answered `a`, and it delegated again with the original plan.
 ## Design decisions
 
 - **A hand-written loop instead of an SDK tool runner or a graph framework.** The loop is the subject of the project, and owning it keeps the gate, the budgets and the delegation in one readable place.
-- **Server-side refusal fallback** is enabled, so a request the model declines is retried on Anthropic's recommended fallback model.
+- **Model calls go through [model-gateway](https://github.com/0103juan/model-gateway).** Each agent names itself as the task, so `runs/ledger.jsonl` records what the orchestrator, the coder and the reviewer each cost, and the run's total comes from there instead of from a price written in this repo. No task is routed to the small model: none has been measured on it. The run above predates this change and has not been repeated through the gateway.
+- **Server-side refusal fallback** is enabled (it is part of the gateway's large tier), so a request the model declines is retried on Anthropic's recommended fallback model.
 - **The message history is append-only.** Responses are stored whole, thinking blocks included, and never edited.
 
 ## Limits, stated plainly
