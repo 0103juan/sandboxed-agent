@@ -3,7 +3,10 @@ name = "sandboxed-agent"
 version = "0.1.0"
 description = "Multi-agent orchestration loop with human approval gates and a locked-down Docker sandbox"
 requires-python = ">=3.11"
-dependencies = ["anthropic>=1.11"]
+dependencies = ["anthropic>=1.11", "model-gateway"]
+
+[tool.uv.sources]
+model-gateway = { git = "https://github.com/0103juan/model-gateway", rev = "e0e3c74dcdfa01278af2a5188a4af8f81274819d" }
 
 [dependency-groups]
 dev = ["pytest>=8"]

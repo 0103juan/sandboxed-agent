@@ -12,19 +12,17 @@ import re
 import shlex
 import sys
 import time
-from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 import anthropic
+from model_gateway import Gateway
 
 from sandbox import Sandbox
 
-MODEL = "claude-sonnet-5-5"
 MAX_TURNS = 15  # per agent invocation
 MAX_LLM_CALLS = 60  # for the whole run, across every agent
-USD_PER_MTOK = {"input_tokens": 2.00, "output_tokens": 10.00}  # claude-sonnet-5-5; thinking bills as output
 AUTO_APPROVED = {"python", "python3", "ls", "cat", "head", "tail", "wc", "grep", "pwd"}
 SHELL_SYNTAX = set(";&|<>`$(){}\n\\")
 
@@ -125,9 +123,12 @@ class Runtime:
 
     def __init__(self, client, sandbox: Sandbox, human: Callable[[str], str] | None = None,
                  trace: Path | None = None):
-        self.client, self.sandbox, self.human, self.trace = client, sandbox, human, trace
+        self.sandbox, self.human, self.trace = sandbox, human, trace
+        # Every agent's calls go through model-gateway, which picks the model (no route, so the large tier,
+        # with its server-side refusal fallback) and writes what each call cost next to the traces.
+        self.gateway = Gateway(client, key=trace.stem if trace else "default",
+                               ledger=trace.with_name("ledger.jsonl") if trace else None)
         self.calls_left = MAX_LLM_CALLS
-        self.usage = Counter()
 
     def log(self, agent: str, event: str, **data) -> None:
         print(f"[{agent}] {event}: {json.dumps(data, ensure_ascii=False)[:300]}")
@@ -143,19 +144,13 @@ class Runtime:
             if self.calls_left <= 0:
                 return "[stopped: the run's LLM call budget is spent]"
             self.calls_left -= 1
-            response = self.client.beta.messages.create(
-                model=MODEL,
-                max_tokens=16000,
+            response = self.gateway.create(
+                task=agent.name,  # the ledger then says what each agent cost
                 output_config={"effort": "medium"},
-                # a safety decline is re-run server-side on Anthropic's recommended fallback model
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
                 system=agent.system,
                 tools=[TOOLS[name] for name in agent.tools],
                 messages=messages,
             )
-            self.usage.update(calls=1, input_tokens=response.usage.input_tokens,
-                              output_tokens=response.usage.output_tokens)
             # Append the whole content (thinking and tool_use blocks included) and never edit it afterwards.
             messages.append({"role": "assistant", "content": response.content})
             text = "".join(block.text for block in response.content if block.type == "text").strip()
@@ -232,8 +227,9 @@ def main() -> None:
     with Sandbox(options.workspace) as sandbox:
         runtime = Runtime(anthropic.Anthropic(), sandbox, human=None if options.yes else input, trace=trace)
         report = runtime.run("orchestrator", options.task)
-        cost = sum(runtime.usage[kind] * usd / 1e6 for kind, usd in USD_PER_MTOK.items())
-        runtime.log("run", "usage", **runtime.usage, usd=round(cost, 4))
+        calls = runtime.gateway.calls
+        runtime.log("run", "usage", calls=len(calls), usd=round(runtime.gateway.spent, 4),
+                    **{kind: sum(call[kind] for call in calls) for kind in ("input_tokens", "output_tokens")})
     print(f"\n{report}\n\nworkspace: {sandbox.workspace}\ntrace: {trace}")
 
 

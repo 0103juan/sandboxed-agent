@@ -4,6 +4,7 @@ The Docker tests run against a real container and are skipped when no daemon is 
 """
 
 import itertools
+import json
 import subprocess
 from types import SimpleNamespace
 
@@ -14,16 +15,17 @@ from agent import AGENTS, Runtime
 from sandbox import Sandbox
 
 ids = itertools.count()
-NO_USAGE = SimpleNamespace(input_tokens=0, output_tokens=0)
+USAGE = SimpleNamespace(input_tokens=1000, output_tokens=100)
 
 
 def say(text):
-    return SimpleNamespace(stop_reason="end_turn", usage=NO_USAGE, content=[SimpleNamespace(type="text", text=text)])
+    return SimpleNamespace(stop_reason="end_turn", usage=USAGE, model="claude-sonnet-5-5",
+                           content=[SimpleNamespace(type="text", text=text)])
 
 
 def call(name, **args):
     block = SimpleNamespace(type="tool_use", id=f"toolu_{next(ids)}", name=name, input=args)
-    return SimpleNamespace(stop_reason="tool_use", usage=NO_USAGE, content=[block])
+    return SimpleNamespace(stop_reason="tool_use", usage=USAGE, model="claude-sonnet-5-5", content=[block])
 
 
 class FakeClient:
@@ -64,8 +66,14 @@ def test_orchestrator_delegates_and_gets_the_report_back(tmp_path):
     )
     sandbox = FakeSandbox(tmp_path)
 
-    report = Runtime(client, sandbox).run("orchestrator", "say hi")
+    runtime = Runtime(client, sandbox, trace=tmp_path / "runs" / "run-1.jsonl")
+    report = runtime.run("orchestrator", "say hi")
 
+    # Every model call went through the gateway: the ledger names the agent that made it and what it cost.
+    ledger = [json.loads(line) for line in (tmp_path / "runs" / "ledger.jsonl").read_text().splitlines()]
+    assert [entry["task"] for entry in ledger] == ["orchestrator", "coder", "coder", "coder", "orchestrator"]
+    assert {entry["key"] for entry in ledger} == {"run-1"}
+    assert runtime.gateway.spent == pytest.approx(5 * (1000 * 2.00 + 100 * 10.00) / 1e6)
     assert report == "Built and verified hello.py"
     assert (tmp_path / "hello.py").read_text() == "print('hi')" and sandbox.commands == ["python hello.py"]
     assert last_result(client)["content"] == "hello.py works"  # the coder's report is the delegate tool's result
